@@ -1,11 +1,6 @@
 # Minimal FPS Overlay
 
-<img width="458" height="326" alt="image" src="https://github.com/user-attachments/assets/a8e0b0e1-291d-423b-af6d-3cd55bf1eea7" />
-<img width="114" height="75" alt="Screenshot 2026-08-21 130231" src="https://github.com/user-attachments/assets/95483a8f-aa2d-42f5-b390-abd5c27b78b7" />
-<img width="230" height="223" alt="Screenshot 2026-08-21 130257" src="https://github.com/user-attachments/assets/7de235b7-9d3c-49f2-9b22-2bc90e01f34a" />
-
-
-A tiny - Minimalistic free FPS counter. Auto-detects whatever
+A tiny, minimalistic, completely free FPS counter. Auto-detects whatever
 game window is in focus and shows real frame-timing FPS (not an
 estimate) as a bare, centered, whole number — nothing else is ever
 drawn on screen. When no game is being measured it shows "0", so the
