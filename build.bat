@@ -11,7 +11,8 @@ python -m PyInstaller --noconfirm --clean ^
   --icon=icon.ico ^
   --version-file=version_info.txt ^
   --name FpsOverlay ^
-  --add-binary "PresentMon-2.5.1-x64.exe;." ^
+  --add-data "PresentMon-2.5.1-x64.exe;." ^
+  --add-data "icon.ico;." ^
   main.py
 if errorlevel 1 (
   echo BUILD FAILED - is FpsOverlay.exe still running? Close it first.

@@ -95,10 +95,13 @@ game closes it drops back to "0".
 
 ## Using it
 
-- **Drag** it anywhere with left-click.
+- **Drag** the counter anywhere with left-click.
 - **Mouse wheel** over the counter grows/shrinks the font one point at
   a time (8–200).
-- **Right-click** it to open the settings menu:
+- **Right-click** the counter — or the **tray icon** — to open the
+  settings menu:
+  - **Show counter** — hide the number during screenshots/streaming,
+    bring it back from the tray.
   - **Text color...** — any color, saved instantly.
   - **Font** — a curated list of fonts that suit an FPS counter
     (Orbitron, Rajdhani, Chakra Petch, Audiowide, Exo 2, Teko,
@@ -110,7 +113,12 @@ game closes it drops back to "0".
   - **Start with Windows** — toggle; creates a Task Scheduler job so the
     counter launches (elevated, silently) every time you log in — no UAC
     prompt at boot.
-  - **Exit** — closes the overlay.
+  - **Check for updates...** — downloads the newest release from GitHub
+    and restarts the app into it (a UAC prompt on relaunch is normal).
+  - **Auto-check updates at launch** — does the above automatically when
+    a new version is published.
+  - **Exit** — closes the overlay. The tray icon (left-click) also
+    toggles the counter's visibility.
 
 All settings (color, font, size, position) are saved to `config.json`
 the moment you change them and remembered next launch.

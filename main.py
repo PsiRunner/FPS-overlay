@@ -25,11 +25,25 @@ def _on_status(overlay, message: str):
     overlay.set_text("0")
 
 
+def _cleanup_old_exe():
+    """After a self-update the previous version sits around as .exe.old
+    (a running exe can be renamed but not deleted). Remove it now that
+    nothing is holding it."""
+    if not getattr(sys, "frozen", False):
+        return
+    old = Path(sys.executable).with_suffix(".exe.old")
+    try:
+        old.unlink(missing_ok=True)
+    except OSError:
+        pass  # still locked by a second instance - try again next launch
+
+
 def main():
     global LOG_PATH
     base = Path(sys.executable).parent if getattr(sys, "frozen", False) \
         else Path(__file__).resolve().parent
     LOG_PATH = base / "fps_overlay.log"
+    _cleanup_old_exe()
 
     app = QApplication(sys.argv)
 
@@ -40,6 +54,7 @@ def main():
     worker.fps_updated.connect(lambda fps: overlay.set_text(str(fps)))
     worker.status_message.connect(lambda msg: _on_status(overlay, msg))
     worker.start()
+    overlay.maybe_auto_check_updates()
 
     exit_code = app.exec()
     worker.stop()

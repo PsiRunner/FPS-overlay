@@ -25,6 +25,7 @@ DEFAULTS = {
     "font_size": 20,
     "pos_x": 30,
     "pos_y": 30,
+    "auto_update": False, # check GitHub for a newer release at every launch
 }
 
 

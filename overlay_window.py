@@ -10,13 +10,17 @@ Everything is saved automatically to config.json.
 """
 import ctypes
 import sys
+from pathlib import Path
 
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QColor, QFont, QFontDatabase, QFontMetrics, QPainter, QPen
-from PyQt6.QtWidgets import QApplication, QColorDialog, QMenu, QWidget
+from PyQt6.QtGui import (QColor, QCursor, QFont, QFontDatabase, QFontMetrics,
+                         QIcon, QPainter, QPen, QPixmap)
+from PyQt6.QtWidgets import (QApplication, QColorDialog, QMenu, QSystemTrayIcon,
+                             QWidget)
 
 from autostart import disable as autostart_disable, enable as autostart_enable, is_enabled as autostart_enabled
 from config import load_config, save_config
+from updater import APP_VERSION, UpdaterWorker, apply_update
 
 # Fonts that suit an FPS counter. The first group is the classic
 # esports/sci-fi look (free Google Fonts - they only appear in the menu
@@ -75,6 +79,43 @@ class FpsOverlay(QWidget):
         self._topmost_timer = QTimer(self)
         self._topmost_timer.timeout.connect(self._reassert_topmost)
         self._topmost_timer.start(2000)
+
+        # system tray: the app's real "window" - close/customize from there
+        self._upd_worker = None
+        self._setup_tray()
+
+    @staticmethod
+    def _resource_path(name: str) -> Path:
+        """Locate bundled resources (icon.ico) in frozen or source mode."""
+        if getattr(sys, "frozen", False):
+            for base in (getattr(sys, "_MEIPASS", None), Path(sys.executable).parent):
+                if base and (Path(base) / name).exists():
+                    return Path(base) / name
+        return Path(__file__).resolve().parent / name
+
+    def _setup_tray(self):
+        self._tray = QSystemTrayIcon(self)
+        icon = QIcon(str(self._resource_path("icon.ico")))
+        if icon.isNull():  # fallback: 32x32 green square, never a blank tray
+            pm = QPixmap(32, 32)
+            pm.fill(QColor("#39FF14"))
+            icon = QIcon(pm)
+        self._tray.setIcon(icon)
+        self._tray.setToolTip(f"FPS Overlay v{APP_VERSION}")
+        self._tray.activated.connect(self._on_tray_activated)
+        self._tray.show()
+
+    def _on_tray_activated(self, reason):
+        if reason == QSystemTrayIcon.ActivationReason.Context:
+            menu = self._build_menu()
+            menu.exec(self.tray_popup_pos())
+        elif reason == QSystemTrayIcon.ActivationReason.Trigger:
+            self.setVisible(not self.isVisible())
+
+    @staticmethod
+    def tray_popup_pos():
+        """Pop the menu near the mouse so it appears by the tray."""
+        return QCursor.pos()
 
     def _apply_font(self):
         """(Re)build the font + metrics from config and refit the window."""
@@ -149,12 +190,12 @@ class FpsOverlay(QWidget):
         except Exception:
             pass
 
-    # --- dragging + right-click settings menu ---
+    # --- dragging + settings menus (shared by overlay & tray) ---
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             self._drag_offset = event.globalPosition().toPoint() - self.pos()
         elif event.button() == Qt.MouseButton.RightButton:
-            self._open_menu()
+            self._build_menu().exec(self.cursor().pos())
 
     def mouseMoveEvent(self, event):
         if self._drag_offset is not None and event.buttons() & Qt.MouseButton.LeftButton:
@@ -178,8 +219,15 @@ class FpsOverlay(QWidget):
             save_config(self.cfg)
             self._apply_font()
 
-    def _open_menu(self):
+    def _build_menu(self) -> QMenu:
+        """One menu for both the tray icon and right-clicking the counter.
+        Built fresh on every open so checkmarks always reflect reality."""
         menu = QMenu(self)
+
+        show_act = menu.addAction("Show counter")
+        show_act.setCheckable(True)
+        show_act.setChecked(self.isVisible())
+        show_act.toggled.connect(self.setVisible)
 
         color_act = menu.addAction("Text color...")
 
@@ -206,15 +254,25 @@ class FpsOverlay(QWidget):
             act.triggered.connect(lambda _, s=size: self._set_font_size(s))
 
         menu.addSeparator()
-        auto_act = menu.addAction("Start with Windows")
-        auto_act.setCheckable(True)
-        auto_act.setChecked(autostart_enabled())
-        auto_act.triggered.connect(self._toggle_autostart)
+        auto_win_act = menu.addAction("Start with Windows")
+        auto_win_act.setCheckable(True)
+        auto_win_act.setChecked(autostart_enabled())
+        auto_win_act.triggered.connect(self._toggle_autostart)
+
+        if getattr(sys, "frozen", False):
+            upd_act = menu.addAction(f"Check for updates...  (v{APP_VERSION})")
+            upd_act.triggered.connect(self._check_updates)
+            auto_upd_act = menu.addAction("Auto-check updates at launch")
+            auto_upd_act.setCheckable(True)
+            auto_upd_act.setChecked(self.cfg.get("auto_update", False))
+            auto_upd_act.toggled.connect(self._toggle_auto_update)
+
+        menu.addSeparator()
         exit_act = menu.addAction("Exit")
 
         color_act.triggered.connect(self._pick_color)
         exit_act.triggered.connect(QApplication.instance().quit)
-        menu.exec(self.cursor().pos())
+        return menu
 
     def _toggle_autostart(self, checked: bool):
         ok = autostart_enable() if checked else autostart_disable()
@@ -225,6 +283,48 @@ class FpsOverlay(QWidget):
                 sender.setChecked(not checked)
         print(f"[fps overlay] start with windows: "
               f"{'enabled' if checked and ok else 'disabled'}")
+
+    # --- updates (frozen exe only) ---
+    def _check_updates(self):
+        if self._upd_worker is not None:
+            self._tray.showMessage("FPS Overlay", "Update check already running.",
+                                   QSystemTrayIcon.MessageIcon.Information)
+            return
+        exe = Path(sys.executable)
+        self._upd_worker = UpdaterWorker(exe)
+        self._upd_worker.status.connect(
+            lambda m: self._tray.showMessage("FPS Overlay", m,
+                                             QSystemTrayIcon.MessageIcon.Information))
+        self._upd_worker.up_to_date.connect(self._update_finished)
+        self._upd_worker.failed.connect(self._update_finished)
+        self._upd_worker.update_ready.connect(self._apply_update)
+        self._upd_worker.start()
+
+    def _update_finished(self, message: str):
+        self._tray.showMessage("FPS Overlay", message,
+                               QSystemTrayIcon.MessageIcon.Information)
+        self._upd_worker = None
+
+    def _apply_update(self, new_exe_path: str):
+        """Download complete: swap exes and relaunch. A UAC prompt for the
+        new instance is normal - it starts elevated like we do."""
+        try:
+            apply_update(new_exe_path)
+            QApplication.instance().quit()   # new instance takes over
+        except Exception as e:
+            self._upd_worker = None
+            self._tray.showMessage("FPS Overlay", f"Update failed: {e}",
+                                   QSystemTrayIcon.MessageIcon.Critical)
+
+    def _toggle_auto_update(self, checked: bool):
+        self.cfg["auto_update"] = bool(checked)
+        save_config(self.cfg)
+        print(f"[fps overlay] auto-check updates at launch: {checked}")
+
+    def maybe_auto_check_updates(self):
+        """Called once at startup by main() when auto_update is enabled."""
+        if getattr(sys, "frozen", False) and self.cfg.get("auto_update", False):
+            self._check_updates()
 
     def _set_font_family(self, family: str):
         self.cfg["font_family"] = family
