@@ -139,3 +139,16 @@ rendering pipeline (what RTSS does, and a much more invasive technique
 than this project uses). Switching the game's display mode to
 Borderless or Windowed Fullscreen in its video settings fixes this.
 
+## License & Credits
+
+Free to use, copy, modify and share — just keep the copyright notice.
+Full terms in [LICENSE](LICENSE); third-party attributions in [NOTICE](NOTICE).
+
+- **[PresentMon](https://github.com/GameTechDev/PresentMon)** (Intel,
+  MIT) — does the real work of reading frame timings via ETW
+- **[PyQt6](https://www.riverbankcomputing.com/software/pyqt/)**
+  (Riverbank Computing, GPL v3) — overlay window & UI; the released
+  .exe bundles it, so that binary is GPLv3
+- **[psutil](https://github.com/giampaolo/psutil)** (BSD 3-Clause) —
+  foreground-process detection
+

@@ -1,0 +1,47 @@
+FPS Overlay - third-party components and credits
+=================================================
+
+This project builds on great open-source work by others. The MIT license
+of FPS Overlay covers only this project's own code (main.py, overlay_window.py,
+fps_worker.py, config.py, autostart.py, build scripts), not the components
+listed below.
+
+PresentMon
+----------
+File:      PresentMon-2.5.1-x64.exe (bundled with the app and inside FpsOverlay.exe)
+Author:    Intel Corporation / GameTechDev
+License:   MIT License
+Source:    https://github.com/GameTechDev/PresentMon
+
+The heart of the measurement: reads real frame Present() timings via ETW.
+FPS Overlay merely parses its CSV output - all credit for the hard part
+goes to the PresentMon team.
+
+PyQt6
+-----
+Author:    Riverbank Computing Ltd
+License:   GPL v3 (commercial license available from Riverbank)
+Website:   https://www.riverbankcomputing.com/software/pyqt/
+
+Powers the transparent always-on-top overlay window, the settings menu,
+and the color/font pickers. NOTE: because the released FpsOverlay.exe
+bundles PyQt6, that binary is distributed under the terms of the GNU GPL v3;
+the source code in this repository remains MIT-licensed.
+
+psutil
+------
+Author:    Giampaolo Rodola
+License:   BSD 3-Clause
+Source:    https://github.com/giampaolo/psutil
+
+Used to resolve foreground window process names and filter system processes.
+
+Microsoft / Windows internals
+-----------------------------
+Thanks to the Microsoft documentation community for the DWM attributes
+(Mica backdrop / corner preference) and SetWindowPos techniques used to
+keep the overlay clean and on top.
+
+
+If you redistribute FPS Overlay, please keep this NOTICE file intact so
+these projects keep getting credit.
