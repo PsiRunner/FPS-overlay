@@ -285,30 +285,40 @@ class FpsOverlay(QWidget):
               f"{'enabled' if checked and ok else 'disabled'}")
 
     # --- updates (frozen exe only) ---
-    def _check_updates(self):
+    def _check_updates(self, silent: bool = False):
         if self._upd_worker is not None:
-            self._tray.showMessage("FPS Overlay", "Update check already running.",
-                                   QSystemTrayIcon.MessageIcon.Information)
             return
         exe = Path(sys.executable)
         self._upd_worker = UpdaterWorker(exe)
-        self._upd_worker.status.connect(
-            lambda m: self._tray.showMessage("FPS Overlay", m,
-                                             QSystemTrayIcon.MessageIcon.Information))
-        self._upd_worker.up_to_date.connect(self._update_finished)
-        self._upd_worker.failed.connect(self._update_finished)
+        self._upd_silent = silent
+        if not silent:
+            self._upd_worker.status.connect(
+                lambda m: self._tray.showMessage("FPS Overlay", m,
+                                                 QSystemTrayIcon.MessageIcon.Information))
+        self._upd_worker.up_to_date.connect(self._update_up_to_date)
+        self._upd_worker.failed.connect(self._update_failed)
         self._upd_worker.update_ready.connect(self._apply_update)
         self._upd_worker.start()
 
-    def _update_finished(self, message: str):
-        self._tray.showMessage("FPS Overlay", message,
-                               QSystemTrayIcon.MessageIcon.Information)
+    def _update_up_to_date(self, message: str):
+        # silent (auto at launch): "already latest" stays quiet
+        if not getattr(self, "_upd_silent", False):
+            self._tray.showMessage("FPS Overlay", message,
+                                   QSystemTrayIcon.MessageIcon.Information)
+        self._upd_worker = None
+
+    def _update_failed(self, message: str):
+        icon = QSystemTrayIcon.MessageIcon.Critical if getattr(self, "_upd_silent", False) \
+            else QSystemTrayIcon.MessageIcon.Information
+        self._tray.showMessage("FPS Overlay", message, icon)
         self._upd_worker = None
 
     def _apply_update(self, new_exe_path: str):
         """Download complete: swap exes and relaunch. A UAC prompt for the
         new instance is normal - it starts elevated like we do."""
         try:
+            self._tray.showMessage("FPS Overlay", "Update downloaded - restarting...",
+                                   QSystemTrayIcon.MessageIcon.Information)
             apply_update(new_exe_path)
             QApplication.instance().quit()   # new instance takes over
         except Exception as e:
@@ -324,7 +334,7 @@ class FpsOverlay(QWidget):
     def maybe_auto_check_updates(self):
         """Called once at startup by main() when auto_update is enabled."""
         if getattr(sys, "frozen", False) and self.cfg.get("auto_update", False):
-            self._check_updates()
+            self._check_updates(silent=True)
 
     def _set_font_family(self, family: str):
         self.cfg["font_family"] = family

@@ -23,6 +23,8 @@ REPO = "PsiRunner/FPS-overlay"
 API_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
 ASSET_NAME = "FpsOverlay.exe"
 CREATE_NO_WINDOW = 0x08000000
+DOWNLOAD_TIMEOUT = 90   # seconds of socket inactivity allowed per read
+MAX_RETRIES = 5         # stalled downloads resume up to this many times
 
 
 def version_tuple(s: str):
@@ -57,6 +59,9 @@ class UpdaterWorker(QThread):
       up_to_date(str)   - already on the newest version
       failed(str)       - network/parse/disk problem, message explains
       update_ready(str) - download finished; str is path to the new exe
+
+    'status' fires sparingly: only at 0/25/50/75% milestones - never per
+    percent - so the tray doesn't spam notifications.
     """
     status = pyqtSignal(str)
     up_to_date = pyqtSignal(str)
@@ -71,7 +76,52 @@ class UpdaterWorker(QThread):
     def stop(self):
         self._stop = True
 
+    def _headers(self, resume_from: int = 0) -> dict:
+        h = {"User-Agent": f"FPSOverlay/{APP_VERSION}"}
+        if resume_from:
+            h["Range"] = f"bytes={resume_from}-"
+        return h
+
+    def _download(self, url: str, dest: Path, expected: int, tag: str):
+        """Download with resume-on-retry. A stalled/dropped connection
+        continues from where it left off instead of failing outright."""
+        last_milestone = -1
+        for attempt in range(1, MAX_RETRIES + 1):
+            if self._stop:
+                return
+            done = dest.stat().st_size if dest.exists() else 0
+            try:
+                req = urllib.request.Request(url, headers=self._headers(done))
+                mode = "ab" if done else "wb"
+                with urllib.request.urlopen(req, timeout=DOWNLOAD_TIMEOUT) as r:
+                    if done and getattr(r, "status", 206) != 206:
+                        mode, done = "wb", 0     # server ignored Range -> restart
+                    with open(dest, mode) as f:
+                        while True:
+                            if self._stop:
+                                return
+                            chunk = r.read(262144)
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                            done += len(chunk)
+                            if expected:
+                                pct = min(100, done * 100 // expected)
+                                if pct >= last_milestone + 25:
+                                    last_milestone = 25 * (pct // 25)
+                                    self.status.emit(f"Downloading {tag}... "
+                                                     f"{last_milestone}%")
+                if not expected or done >= expected:
+                    return                       # complete
+            except Exception:
+                if attempt >= MAX_RETRIES:
+                    raise
+                import time
+                time.sleep(2 * attempt)          # back off, then resume
+        raise RuntimeError("download did not complete")
+
     def run(self):
+        tmp = None
         try:
             self.status.emit("Checking for updates...")
             rel = fetch_latest_release()
@@ -90,29 +140,18 @@ class UpdaterWorker(QThread):
             expected = int(asset.get("size", 0))
             tmp = self._exe_path.with_suffix(".exe.new")
             self.status.emit(f"Downloading {tag}...")
+            self._download(url, tmp, expected, tag)
 
-            req = urllib.request.Request(url, headers={"User-Agent": f"FPSOverlay/{APP_VERSION}"})
-            done = 0
-            with urllib.request.urlopen(req, timeout=30) as r, open(tmp, "wb") as f:
-                while True:
-                    if self._stop:
-                        tmp.unlink(missing_ok=True)
-                        return
-                    chunk = r.read(262144)
-                    if not chunk:
-                        break
-                    f.write(chunk)
-                    done += len(chunk)
-                    if expected:
-                        self.status.emit(f"Downloading {tag}... {done * 100 // expected}%")
-
-            if expected and done != expected:
+            actual = tmp.stat().st_size
+            if expected and actual != expected:
                 tmp.unlink(missing_ok=True)
-                self.failed.emit(f"Download incomplete ({done}/{expected} bytes).")
+                self.failed.emit(f"Download incomplete ({actual}/{expected} bytes).")
                 return
 
             self.update_ready.emit(str(tmp))
         except Exception as e:  # network, JSON, disk - report anything
+            if tmp is not None:
+                tmp.unlink(missing_ok=True)
             self.failed.emit(f"{type(e).__name__}: {e}")
 
 
