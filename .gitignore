@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.pyc
+
+# PyInstaller build output
+build/
+dist/
+*.spec
+
+# User-local state (created next to the app at runtime)
+config.json
+fps_overlay.log
