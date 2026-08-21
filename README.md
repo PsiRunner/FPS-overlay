@@ -16,6 +16,33 @@ tracing mechanism (ETW) to read real frame Present() timings straight
 from the OS/GPU driver. No injection into your game, no code changes to
 your game — same technique CapFrameX and similar tools use.
 
+## Screenshots
+
+A bare bold number with a thin black outline — readable over any game
+scene. Some font/color combinations (simulated renders of exactly what
+the overlay draws; regenerate anytime with
+`python tools/make_screenshots.py`):
+
+<p align="center">
+  <img src="docs/showcase.png" alt="FPS Overlay - font and color showcase" width="680">
+</p>
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/hero-neon-green.png" width="270"><br><sub>Bahnschrift · neon green (default)</sub></td>
+    <td align="center"><img src="docs/consolas-red.png" width="270"><br><sub>Consolas · red</sub></td>
+    <td align="center"><img src="docs/arial-black-cyan.png" width="270"><br><sub>Arial Black · cyan</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/impact-orange.png" width="270"><br><sub>Impact · orange</sub></td>
+    <td align="center"><img src="docs/segoe-white.png" width="270"><br><sub>Segoe UI · white</sub></td>
+    <td align="center"><img src="docs/franklin-magenta.png" width="270"><br><sub>Franklin Gothic · magenta</sub></td>
+  </tr>
+</table>
+
+Install the free Google Fonts (Orbitron, Rajdhani, Chakra Petch…) and
+they appear in the right-click menu too.
+
 ## Setup (one time)
 
 1. **Python 3.10+** on Windows (from python.org — tick "Add to PATH" during install).
