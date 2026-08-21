@@ -115,8 +115,12 @@ game closes it drops back to "0".
     prompt at boot.
   - **Check for updates...** — downloads the newest release from GitHub
     and restarts the app into it (a UAC prompt on relaunch is normal).
-  - **Auto-check updates at launch** — does the above automatically when
-    a new version is published.
+    Progress notifications appear at 25% steps only; if your connection
+    stalls mid-download it automatically resumes where it left off
+    (up to 5 retries) instead of failing.
+  - **Auto-check updates at launch** — checks silently every time the
+    app starts and only notifies you when a new version is actually
+    ready to install.
   - **Exit** — closes the overlay. The tray icon (left-click) also
     toggles the counter's visibility.
 
