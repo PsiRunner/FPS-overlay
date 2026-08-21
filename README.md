@@ -1,6 +1,11 @@
 # Minimal FPS Overlay
 
-A tiny, ugly-commercial-overlay-free FPS counter. Auto-detects whatever
+<img width="458" height="326" alt="image" src="https://github.com/user-attachments/assets/a8e0b0e1-291d-423b-af6d-3cd55bf1eea7" />
+<img width="114" height="75" alt="Screenshot 2026-08-21 130231" src="https://github.com/user-attachments/assets/95483a8f-aa2d-42f5-b390-abd5c27b78b7" />
+<img width="230" height="223" alt="Screenshot 2026-08-21 130257" src="https://github.com/user-attachments/assets/7de235b7-9d3c-49f2-9b22-2bc90e01f34a" />
+
+
+A tiny - Minimalistic free FPS counter. Auto-detects whatever
 game window is in focus and shows real frame-timing FPS (not an
 estimate) as a bare, centered, whole number — nothing else is ever
 drawn on screen. When no game is being measured it shows "0", so the
@@ -109,23 +114,3 @@ rendering pipeline (what RTSS does, and a much more invasive technique
 than this project uses). Switching the game's display mode to
 Borderless or Windowed Fullscreen in its video settings fixes this.
 
-## Notes / things you might want to tweak later
-
-- Default font is Consolas at size 20 — change both from the
-  right-click menu (or hand-edit `font_family` / `font_size` in
-  `config.json`).
-- The counter is smoothed (exponential moving average over recent
-  frames) and only redraws when the whole-number FPS actually changes,
-  so tiny frame-to-frame jitter (61.3 vs 60.9) won't flicker the
-  display — it settles on one number and only moves when performance
-  genuinely shifts. Tune `EMA_ALPHA` in `fps_worker.py` if you want it
-  steadier (lower, e.g. 0.3) or snappier to real drops (higher, e.g. 0.7).
-- It is *not* click-through — it's a small widget that sits in a corner
-  out of the way. If you'd rather it never intercepts clicks at all
-  (true click-through, like RTSS), that's a small addition I can make.
-- It re-pins itself to the very top of the window stack every 2 seconds
-  (`_reassert_topmost` in `overlay_window.py`), which fixes the common
-  case of a game briefly shoving it behind on launch or scene change.
-  It also explicitly turns off Windows 11's automatic Mica background
-  and rounded corners for frameless windows — that's what caused the
-  solid lavender box you saw instead of true transparency.
