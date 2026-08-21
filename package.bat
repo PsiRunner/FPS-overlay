@@ -8,7 +8,9 @@ if "%VER%"=="" set VER=1.0.0
 call build.bat
 if errorlevel 1 exit /b 1
 
-powershell -NoProfile -Command "Compress-Archive -Force -Path 'dist\FpsOverlay.exe' -DestinationPath 'dist\FpsOverlay-v%VER%.zip'"
+rem Zip contains everything needed for redistribution: the app plus
+rem license/attribution files that must accompany any public upload.
+powershell -NoProfile -Command "Compress-Archive -Force -Path 'dist\FpsOverlay.exe','LICENSE','NOTICE','README.md' -DestinationPath 'dist\FpsOverlay-v%VER%.zip'"
 if errorlevel 1 exit /b 1
 
 echo.
