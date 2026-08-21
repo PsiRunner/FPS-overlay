@@ -15,6 +15,7 @@ from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QColor, QFont, QFontDatabase, QFontMetrics, QPainter, QPen
 from PyQt6.QtWidgets import QApplication, QColorDialog, QMenu, QWidget
 
+from autostart import disable as autostart_disable, enable as autostart_enable, is_enabled as autostart_enabled
 from config import load_config, save_config
 
 # Fonts that suit an FPS counter. The first group is the classic
@@ -205,11 +206,25 @@ class FpsOverlay(QWidget):
             act.triggered.connect(lambda _, s=size: self._set_font_size(s))
 
         menu.addSeparator()
+        auto_act = menu.addAction("Start with Windows")
+        auto_act.setCheckable(True)
+        auto_act.setChecked(autostart_enabled())
+        auto_act.triggered.connect(self._toggle_autostart)
         exit_act = menu.addAction("Exit")
 
         color_act.triggered.connect(self._pick_color)
         exit_act.triggered.connect(QApplication.instance().quit)
         menu.exec(self.cursor().pos())
+
+    def _toggle_autostart(self, checked: bool):
+        ok = autostart_enable() if checked else autostart_disable()
+        if not ok:
+            # revert the checkbox so it never lies about the real state
+            sender = self.sender()
+            if sender:
+                sender.setChecked(not checked)
+        print(f"[fps overlay] start with windows: "
+              f"{'enabled' if checked and ok else 'disabled'}")
 
     def _set_font_family(self, family: str):
         self.cfg["font_family"] = family

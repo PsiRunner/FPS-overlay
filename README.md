@@ -107,6 +107,9 @@ game closes it drops back to "0".
     only show up in the menu once you've installed the TTFs on Windows;
     everything in the "built into Windows" group is always available.
   - **Font size** — quick presets.
+  - **Start with Windows** — toggle; creates a Task Scheduler job so the
+    counter launches (elevated, silently) every time you log in — no UAC
+    prompt at boot.
   - **Exit** — closes the overlay.
 
 All settings (color, font, size, position) are saved to `config.json`
