@@ -11,18 +11,18 @@ replace (sys.executable is python.exe), so callers should hide update
 UI unless getattr(sys, "frozen", False).
 """
 import json
-import subprocess
+import os
 import sys
+import time
 import urllib.request
 from pathlib import Path
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
-APP_VERSION = "1.1.2"
+APP_VERSION = "1.1.3"
 REPO = "PsiRunner/FPS-overlay"
 API_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
 ASSET_NAME = "FpsOverlay.exe"
-CREATE_NO_WINDOW = 0x08000000
 DOWNLOAD_TIMEOUT = 90   # seconds of socket inactivity allowed per read
 MAX_RETRIES = 5         # stalled downloads resume up to this many times
 
@@ -155,17 +155,27 @@ class UpdaterWorker(QThread):
             self.failed.emit(f"{type(e).__name__}: {e}")
 
 
-def apply_update(new_exe: str) -> bool:
+def apply_update(new_exe: str) -> None:
     """Swap the freshly downloaded exe into place and relaunch.
-    Returns True when the new instance was started."""
+
+    The running exe can't be deleted or overwritten on Windows, but it
+    CAN be renamed - so: current -> .exe.old, download -> current.
+    Relaunch goes through os.startfile (ShellExecute), which handles the
+    requireAdministrator manifest properly; a bare CreateProcess can
+    fail with ERROR_ELEVATION_REQUIRED in some launch contexts.
+    """
     exe = Path(sys.executable).resolve()
     old = exe.with_suffix(".exe.old")
     old.unlink(missing_ok=True)
-    exe.rename(old)                      # allowed even while we're running
-    Path(new_exe).replace(exe)           # move download into place
-    subprocess.Popen(
-        [str(exe)],
-        creationflags=CREATE_NO_WINDOW,
-        cwd=str(exe.parent),
-    )
-    return True
+    exe.rename(old)
+    Path(new_exe).replace(exe)
+
+    # sanity check before we kill ourselves: AV sometimes quarantines a
+    # freshly written unsigned exe milliseconds after it lands. If the
+    # new file is gone/tiny, roll back instead of bricking the install.
+    if not exe.exists() or exe.stat().st_size < 1_000_000:
+        old.replace(exe)                 # put the old build back
+        raise RuntimeError("new executable disappeared after swap (antivirus?)")
+
+    os.startfile(str(exe))               # new instance takes over from here
+    time.sleep(0.4)                      # let it spin up before we exit

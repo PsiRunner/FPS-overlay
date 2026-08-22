@@ -142,6 +142,11 @@ class _PresentMonSession:
                 self.proc.kill()
             except Exception:
                 pass
+        # PresentMon runs FROM our PyInstaller _MEI temp dir; give the OS
+        # a moment to release its file handles so the on-exit cleanup of
+        # that directory doesn't fail with "Failed to remove temporary
+        # directory" (seen right after a self-update restart).
+        time.sleep(0.3)
 
 
 class FpsWorker(QThread):

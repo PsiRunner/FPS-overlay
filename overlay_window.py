@@ -89,6 +89,7 @@ class FpsOverlay(QWidget):
 
         # system tray: the app's real "window" - close/customize from there
         self._upd_worker = None
+        self.before_restart = None   # main() sets this: stops worker/ETW cleanly
         self._setup_tray()
 
     @staticmethod
@@ -359,8 +360,15 @@ class FpsOverlay(QWidget):
         try:
             self._tray.showMessage("FPS Overlay", "Update downloaded - restarting...",
                                    QSystemTrayIcon.MessageIcon.Information)
+            # shut PresentMon down FIRST: it runs from our _MEI temp dir,
+            # and quitting before it dies is what caused the "Failed to
+            # remove temporary directory" warning after an update restart.
+            if self.before_restart is not None:
+                self.before_restart()
             apply_update(new_exe_path)
-            QApplication.instance().quit()   # new instance takes over
+            # small delay so the toast renders and the new instance gets a
+            # head start before our process tears down
+            QTimer.singleShot(600, QApplication.instance().quit)
         except Exception as e:
             self._upd_worker = None
             self._tray.showMessage("FPS Overlay", f"Update failed: {e}",

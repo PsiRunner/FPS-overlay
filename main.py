@@ -56,6 +56,16 @@ def main():
     worker.start()
     overlay.maybe_auto_check_updates()
 
+    def _before_restart():
+        """Update swap is about to happen: stop PresentMon/ETW cleanly so
+        the old instance's temp dir unlocks and the new instance starts
+        into a fresh session."""
+        print("[fps overlay] stopping frame tracking for restart...")
+        worker.stop()
+        worker.wait(6000)
+
+    overlay.before_restart = _before_restart
+
     exit_code = app.exec()
     worker.stop()
     worker.wait(2000)

@@ -153,6 +153,13 @@ Borderless or Windowed Fullscreen in its video settings fixes this.
 
 ## Changelog
 
+**v1.1.3**
+- Fixed: after a self-update the old instance warned
+  "Failed to remove temporary directory" and the new one didn't start.
+  PresentMon is now shut down cleanly before the swap, relaunch goes
+  through ShellExecute, and a sanity check rolls back to the previous
+  build if anything goes wrong mid-swap.
+
 **v1.1.2**
 - Fixed: the counter could get buried under newly opened windows (Explorer,
   some games) until you interacted with the tray. Topmost status is now
