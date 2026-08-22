@@ -48,10 +48,17 @@ _DWMSBT_NONE = 1
 # 2) Some games (especially borderless/windowed ones) can push an
 #    always-on-top window behind themselves during play. Re-asserting
 #    HWND_TOPMOST periodically keeps the overlay pinned above them.
+_HWND_NOTOPMOST = -2
 _HWND_TOPMOST = -1
 _SWP_NOMOVE = 0x0002
 _SWP_NOSIZE = 0x0001
 _SWP_NOACTIVATE = 0x0010
+_GWL_EXSTYLE = -20
+_WS_EX_TOPMOST = 0x00000008
+
+
+class _POINT(ctypes.Structure):
+    _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
 
 
 class FpsOverlay(QWidget):
@@ -75,10 +82,10 @@ class FpsOverlay(QWidget):
         self._apply_font()
         self.move(self.cfg["pos_x"], self.cfg["pos_y"])
 
-        # keep re-pinning ourselves above the game every couple seconds
+        # keep re-pinning ourselves above the game every second
         self._topmost_timer = QTimer(self)
         self._topmost_timer.timeout.connect(self._reassert_topmost)
-        self._topmost_timer.start(2000)
+        self._topmost_timer.start(1000)
 
         # system tray: the app's real "window" - close/customize from there
         self._upd_worker = None
@@ -179,16 +186,49 @@ class FpsOverlay(QWidget):
             pass
 
     def _reassert_topmost(self):
+        """Windows sometimes lets other windows bury us: it can silently
+        drop the WS_EX_TOPMOST style, and windows that are themselves
+        topmost (some games/launchers) can sit above us inside the
+        topmost band. Check both every tick and repair only when needed.
+
+        The repair is the NOTOPMOST->TOPMOST dance, which forces Windows
+        to re-insert the window at the very top of the topmost band.
+        """
         if sys.platform != "win32":
             return
         try:
             hwnd = int(self.winId())
-            ctypes.windll.user32.SetWindowPos(
-                hwnd, _HWND_TOPMOST, 0, 0, 0, 0,
-                _SWP_NOMOVE | _SWP_NOSIZE | _SWP_NOACTIVATE,
-            )
+            user32 = ctypes.windll.user32
+
+            ex_style = user32.GetWindowLongW(hwnd, _GWL_EXSTYLE)
+            if not (ex_style & _WS_EX_TOPMOST):
+                self._bump_topmost(hwnd)          # style was stripped
+                return
+            if self.isVisible() and self._is_covered(hwnd):
+                self._bump_topmost(hwnd)          # another topmost is above us
         except Exception:
             pass
+
+    def _bump_topmost(self, hwnd: int):
+        flags = _SWP_NOMOVE | _SWP_NOSIZE | _SWP_NOACTIVATE
+        user32 = ctypes.windll.user32
+        user32.SetWindowPos(hwnd, _HWND_NOTOPMOST, 0, 0, 0, 0, flags)
+        user32.SetWindowPos(hwnd, _HWND_TOPMOST, 0, 0, 0, 0, flags)
+
+    def _is_covered(self, hwnd: int) -> bool:
+        """True when no point over our text hits OUR window - i.e. some
+        window is drawn on top of us right now."""
+        try:
+            user32 = ctypes.windll.user32
+            g = self.mapToGlobal(self.rect()).toRect()
+            y = g.center().y()
+            for fx in (0.3, 0.4, 0.5, 0.6, 0.7):
+                pt = _POINT(g.x() + int(g.width() * fx), y)
+                if user32.WindowFromPoint(pt) == hwnd:
+                    return False   # at least one spot still shows us on top
+            return True
+        except Exception:
+            return False
 
     # --- dragging + settings menus (shared by overlay & tray) ---
     def mousePressEvent(self, event):

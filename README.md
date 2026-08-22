@@ -151,6 +151,30 @@ rendering pipeline (what RTSS does, and a much more invasive technique
 than this project uses). Switching the game's display mode to
 Borderless or Windowed Fullscreen in its video settings fixes this.
 
+## Changelog
+
+**v1.1.2**
+- Fixed: the counter could get buried under newly opened windows (Explorer,
+  some games) until you interacted with the tray. Topmost status is now
+  verified every second and repaired automatically — including against
+  other always-on-top windows.
+
+**v1.1.1**
+- Fixed: update progress notifications fired every 1% — now only at 25% steps
+- Fixed: stalled downloads no longer fail (timeout ~90%) — they resume
+  automatically where they left off, up to 5 retries
+- Auto-check-at-launch is now silent unless an update is ready or failed
+
+**v1.1.0**
+- Added: system tray icon (left-click shows/hides the counter; right-click
+  opens all settings)
+- Added: self-update — check for updates from the menu and optional
+  auto-check at launch, downloading straight from GitHub releases
+
+**v1.0.0**
+- First stable release: real frame-timing FPS via PresentMon, auto game
+  detection, drag to move, color/font/size customization, Start-with-Windows
+
 ## License & Credits
 
 Free to use, copy, modify and share — just keep the copyright notice.
