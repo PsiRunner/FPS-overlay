@@ -57,8 +57,21 @@ _GWL_EXSTYLE = -20
 _WS_EX_TOPMOST = 0x00000008
 
 
-class _POINT(ctypes.Structure):
-    _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+class _RECT(ctypes.Structure):
+    _fields_ = [("left", ctypes.c_long), ("top", ctypes.c_long),
+                ("right", ctypes.c_long), ("bottom", ctypes.c_long)]
+
+
+if sys.platform == "win32":
+    # HWNDs are pointer-sized (64-bit); without explicit restype/argtypes,
+    # ctypes defaults to 32-bit ints and truncates/mis-signs them.
+    _user32 = ctypes.windll.user32
+    _user32.GetWindow.restype = ctypes.c_void_p
+    _user32.GetWindow.argtypes = [ctypes.c_void_p, ctypes.c_uint]
+    _user32.GetWindowRect.argtypes = [ctypes.c_void_p, ctypes.POINTER(_RECT)]
+    _user32.IsWindowVisible.argtypes = [ctypes.c_void_p]
+    ctypes.windll.dwmapi.DwmGetWindowAttribute.argtypes = [
+        ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_uint]
 
 
 class FpsOverlay(QWidget):
@@ -217,17 +230,51 @@ class FpsOverlay(QWidget):
         user32.SetWindowPos(hwnd, _HWND_TOPMOST, 0, 0, 0, 0, flags)
 
     def _is_covered(self, hwnd: int) -> bool:
-        """True when no point over our text hits OUR window - i.e. some
-        window is drawn on top of us right now."""
+        """True when a VISIBLE window above us in the topmost z-order band
+        overlaps our rect - i.e. something is really drawn over us.
+
+        We walk the z-order upward from our own window (GetWindow /
+        GW_HWNDPREV) and stop at the first candidate that is visible,
+        un-minimized, uncloaked and geometrically overlapping. Pixel
+        hit-testing (WindowFromPoint) is deliberately NOT used: a
+        translucent layered window is click-through on its transparent
+        pixels, so sampling points over a narrow glyph mostly hits the
+        window beneath and reports false 'covered' states.
+        """
         try:
             user32 = ctypes.windll.user32
-            g = self.mapToGlobal(self.rect()).toRect()
-            y = g.center().y()
-            for fx in (0.3, 0.4, 0.5, 0.6, 0.7):
-                pt = _POINT(g.x() + int(g.width() * fx), y)
-                if user32.WindowFromPoint(pt) == hwnd:
-                    return False   # at least one spot still shows us on top
-            return True
+            g = self.mapToGlobal(self.rect().topLeft())
+            left, top = g.x(), g.y()
+            right, bottom = left + self.width(), top + self.height()
+
+            h = hwnd
+            while True:
+                h = user32.GetWindow(h, 3)          # 3 = GW_HWNDPREV (above us)
+                if not h:
+                    return False                     # reached band top: clear
+                if not user32.IsWindowVisible(h):
+                    continue
+                if user32.IsIconic(h):
+                    continue                         # minimized windows can't cover
+                if not (user32.GetWindowLongW(h, _GWL_EXSTYLE) & _WS_EX_TOPMOST):
+                    return False                     # left the topmost band: clear
+                r = _RECT()
+                if not user32.GetWindowRect(h, ctypes.byref(r)):
+                    continue
+                if r.right <= left or r.left >= right or \
+                   r.bottom <= top or r.top >= bottom:
+                    continue                         # no overlap with our rect
+                # ignore DWM-cloaked windows (invisible UWP hosts etc.)
+                cloaked = ctypes.c_int(0)
+                try:
+                    ctypes.windll.dwmapi.DwmGetWindowAttribute(
+                        ctypes.c_void_p(h), 14,         # DWMWA_CLOAKED
+                        ctypes.byref(cloaked), ctypes.sizeof(cloaked))
+                    if cloaked.value:
+                        continue
+                except Exception:
+                    pass
+                return True                            # something real is over us
         except Exception:
             return False
 

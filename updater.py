@@ -19,7 +19,7 @@ from pathlib import Path
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
-APP_VERSION = "1.1.3"
+APP_VERSION = "1.1.4"
 REPO = "PsiRunner/FPS-overlay"
 API_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
 ASSET_NAME = "FpsOverlay.exe"

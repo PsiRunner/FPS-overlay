@@ -153,6 +153,22 @@ Borderless or Windowed Fullscreen in its video settings fixes this.
 
 ## Changelog
 
+**v1.1.4**
+- Fixed: the overlay could get stuck behind other windows (e.g. a
+  maximized browser) and never recover - the coverage check crashed on
+  every call (`mapToGlobal` received a `QRect` instead of a `QPoint`)
+  and the error was silently swallowed. It now walks the topmost
+  z-order band directly and re-asserts topmost only when a window is
+  really covering the counter.
+- Fixed: window-handle handling hardened against 64-bit truncation by
+  declaring ctypes `restype`/`argtypes` explicitly.
+- Changed: **~22% smaller exe** (37.4 -> 29.4 MB). The new
+  `FpsOverlay.spec` build strips Mesa's software-OpenGL fallback,
+  unused image-format/icon-engine plugins and the touchscreen input
+  plugin, plus defensive excludes for unused PyQt6 modules. The ICO
+  codec plugin is deliberately kept (tray/taskbar icon).
+- Changed: `build.bat` now builds from `FpsOverlay.spec`.
+
 **v1.1.3**
 - Fixed: after a self-update the old instance warned
   "Failed to remove temporary directory" and the new one didn't start.
