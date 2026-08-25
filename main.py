@@ -38,12 +38,41 @@ def _cleanup_old_exe():
         pass  # still locked by a second instance - try again next launch
 
 
+def _log_line(message: str):
+    """Early-startup logging: the full status logger lives in main() but
+    autostart repair runs before the app object exists."""
+    print(f"[fps overlay] {message}")
+    if LOG_PATH is not None:
+        try:
+            with open(LOG_PATH, "a", encoding="utf-8") as f:
+                f.write(f"{datetime.now():%Y-%m-%d %H:%M:%S} {message}\n")
+        except OSError:
+            pass
+
+
 def main():
     global LOG_PATH
     base = Path(sys.executable).parent if getattr(sys, "frozen", False) \
         else Path(__file__).resolve().parent
     LOG_PATH = base / "fps_overlay.log"
     _cleanup_old_exe()
+
+    if getattr(sys, "frozen", False):
+        # self-heal autostart: re-create the task so it always points at
+        # this exe with healthy settings (battery-safe, no time limit).
+        # Outcome goes to the log - silent failures here cost us days.
+        try:
+            import autostart
+            if autostart.is_enabled():
+                if autostart.enable():
+                    _log_line("autostart task refreshed")
+                else:
+                    _log_line(f"autostart task refresh FAILED: "
+                              f"{autostart.LAST_ERROR}")
+            else:
+                _log_line("autostart task not enabled - skipped refresh")
+        except Exception as e:
+            _log_line(f"autostart repair error: {e!r}")
 
     app = QApplication(sys.argv)
 
@@ -59,10 +88,12 @@ def main():
     def _before_restart():
         """Update swap is about to happen: stop PresentMon/ETW cleanly so
         the old instance's temp dir unlocks and the new instance starts
-        into a fresh session."""
+        into a fresh session. kill_presentmon() is the safety net for a
+        worker thread stuck in a blocking pipe read."""
         print("[fps overlay] stopping frame tracking for restart...")
         worker.stop()
-        worker.wait(6000)
+        worker.wait(2500)
+        worker.kill_presentmon()
 
     overlay.before_restart = _before_restart
 

@@ -153,6 +153,9 @@ Borderless or Windowed Fullscreen in its video settings fixes this.
 
 ## Changelog
 
+**v1.1.5**
+- Fixed: overlay remaining behind newly focused windows or fullscreen borderless games. Added foreground window coverage detection, enhanced `NOTOPMOST` -> `TOPMOST` re-pinning with `SWP_SHOWWINDOW`, full Win32 API ctypes function signatures, and faster 100ms z-order reassertion.
+
 **v1.1.4**
 - Fixed: the overlay could get stuck behind other windows (e.g. a
   maximized browser) and never recover - the coverage check crashed on

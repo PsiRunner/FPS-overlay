@@ -12,6 +12,7 @@ UI unless getattr(sys, "frozen", False).
 """
 import json
 import os
+import subprocess
 import sys
 import time
 import urllib.request
@@ -19,11 +20,11 @@ from pathlib import Path
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
-APP_VERSION = "1.1.4"
+APP_VERSION = "1.1.5"
 REPO = "PsiRunner/FPS-overlay"
 API_URL = f"https://api.github.com/repos/{REPO}/releases/latest"
 ASSET_NAME = "FpsOverlay.exe"
-DOWNLOAD_TIMEOUT = 90   # seconds of socket inactivity allowed per read
+DOWNLOAD_TIMEOUT = 15   # seconds of socket inactivity before we call it stalled
 MAX_RETRIES = 5         # stalled downloads resume up to this many times
 
 
@@ -84,7 +85,10 @@ class UpdaterWorker(QThread):
 
     def _download(self, url: str, dest: Path, expected: int, tag: str):
         """Download with resume-on-retry. A stalled/dropped connection
-        continues from where it left off instead of failing outright."""
+        continues from where it left off instead of failing outright.
+        The socket timeout doubles as stall detection: if no bytes
+        arrive for DOWNLOAD_TIMEOUT seconds the read raises, we tell
+        the user we're resuming, and reconnect with a Range header."""
         last_milestone = -1
         for attempt in range(1, MAX_RETRIES + 1):
             if self._stop:
@@ -116,8 +120,10 @@ class UpdaterWorker(QThread):
             except Exception:
                 if attempt >= MAX_RETRIES:
                     raise
-                import time
-                time.sleep(2 * attempt)          # back off, then resume
+                if done:                         # tell the user what happened
+                    self.status.emit(f"Connection stalled - resuming "
+                                     f"{tag} at {done * 100 // max(expected, 1)}%...")
+                time.sleep(min(1.5 * attempt, 5))  # brief back off, then resume
         raise RuntimeError("download did not complete")
 
     def run(self):
@@ -156,13 +162,23 @@ class UpdaterWorker(QThread):
 
 
 def apply_update(new_exe: str) -> None:
-    """Swap the freshly downloaded exe into place and relaunch.
+    """Swap the freshly downloaded exe into place and restart cleanly.
 
     The running exe can't be deleted or overwritten on Windows, but it
     CAN be renamed - so: current -> .exe.old, download -> current.
-    Relaunch goes through os.startfile (ShellExecute), which handles the
-    requireAdministrator manifest properly; a bare CreateProcess can
-    fail with ERROR_ELEVATION_REQUIRED in some launch contexts.
+
+    The restart itself is handed to a DETACHED PowerShell helper that
+    runs after we're gone:
+        1. wait for THIS process to fully exit
+        2. force-remove our _MEI temp dir and the .exe.old backup
+        3. start the new exe (inherits our elevation - no UAC prompt)
+
+    Launching the new exe directly from here (os.startfile) raced with
+    our own teardown: the new instance started while the old one was
+    still alive, and any lingering handle (usually the PresentMon child
+    running from _MEI) made the bootloader's cleanup fail with the modal
+    "Failed to remove temporary directory" warning. Sequencing through
+    the helper removes the race entirely.
     """
     exe = Path(sys.executable).resolve()
     old = exe.with_suffix(".exe.old")
@@ -177,5 +193,24 @@ def apply_update(new_exe: str) -> None:
         old.replace(exe)                 # put the old build back
         raise RuntimeError("new executable disappeared after swap (antivirus?)")
 
-    os.startfile(str(exe))               # new instance takes over from here
-    time.sleep(0.4)                      # let it spin up before we exit
+    mei = getattr(sys, "_MEIPASS", "")
+    old_pid = os.getpid()
+
+    def ps(s: str) -> str:
+        return "'" + s.replace("'", "''") + "'"
+
+    script = (
+        f"Wait-Process -Id {old_pid} -Timeout 30 -ErrorAction SilentlyContinue; "
+        "Start-Sleep -Milliseconds 300; "
+        f"Remove-Item -LiteralPath {ps(mei)} -Recurse -Force -ErrorAction SilentlyContinue; "
+        f"Remove-Item -LiteralPath {ps(str(old))} -Force -ErrorAction SilentlyContinue; "
+        f"Start-Process -FilePath {ps(str(exe))}"
+    )
+    # CREATE_NO_WINDOW | CREATE_NEW_PROCESS_GROUP: invisible and fully
+    # detached - it outlives us and does the launch once we're gone.
+    subprocess.Popen(
+        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
+         "-Command", script],
+        creationflags=0x08000000 | 0x00000200,
+        close_fds=True,
+    )

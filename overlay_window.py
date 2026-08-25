@@ -53,8 +53,13 @@ _HWND_TOPMOST = -1
 _SWP_NOMOVE = 0x0002
 _SWP_NOSIZE = 0x0001
 _SWP_NOACTIVATE = 0x0010
+_SWP_SHOWWINDOW = 0x0040
 _GWL_EXSTYLE = -20
 _WS_EX_TOPMOST = 0x00000008
+_WS_EX_LAYERED = 0x00080000
+_WS_EX_TRANSPARENT = 0x00000020
+_WS_EX_TOOLWINDOW = 0x00000080
+_WS_EX_NOACTIVATE = 0x08000000
 
 
 class _RECT(ctypes.Structure):
@@ -68,8 +73,20 @@ if sys.platform == "win32":
     _user32 = ctypes.windll.user32
     _user32.GetWindow.restype = ctypes.c_void_p
     _user32.GetWindow.argtypes = [ctypes.c_void_p, ctypes.c_uint]
+    _user32.GetForegroundWindow.restype = ctypes.c_void_p
+    _user32.GetForegroundWindow.argtypes = []
     _user32.GetWindowRect.argtypes = [ctypes.c_void_p, ctypes.POINTER(_RECT)]
     _user32.IsWindowVisible.argtypes = [ctypes.c_void_p]
+    _user32.IsIconic.argtypes = [ctypes.c_void_p]
+    _user32.GetWindowLongW.restype = ctypes.c_long
+    _user32.GetWindowLongW.argtypes = [ctypes.c_void_p, ctypes.c_int]
+    _user32.SetWindowLongW.restype = ctypes.c_long
+    _user32.SetWindowLongW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_long]
+    _user32.SetWindowPos.restype = ctypes.c_bool
+    _user32.SetWindowPos.argtypes = [
+        ctypes.c_void_p, ctypes.c_void_p,
+        ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_uint
+    ]
     ctypes.windll.dwmapi.DwmGetWindowAttribute.argtypes = [
         ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_uint]
 
@@ -81,10 +98,15 @@ class FpsOverlay(QWidget):
         self._text = "0"   # visible from launch so it can be dragged/styled
         self._drag_offset = None
 
+        # NOTE: Qt.WindowType.Tool is deliberately NOT used here.
+        # On Windows, Tool windows get a lower z-order priority and the
+        # OS lets regular windows (and games) sit above them.  Instead
+        # we apply WS_EX_TOOLWINDOW directly via Win32 in showEvent()
+        # which hides us from the taskbar / Alt-Tab without the z-order
+        # penalty.
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
-            | Qt.WindowType.Tool
             | Qt.WindowType.WindowDoesNotAcceptFocus
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
@@ -95,10 +117,10 @@ class FpsOverlay(QWidget):
         self._apply_font()
         self.move(self.cfg["pos_x"], self.cfg["pos_y"])
 
-        # keep re-pinning ourselves above the game every second
+        # keep re-pinning ourselves above games & new windows (100 ms interval)
         self._topmost_timer = QTimer(self)
         self._topmost_timer.timeout.connect(self._reassert_topmost)
-        self._topmost_timer.start(1000)
+        self._topmost_timer.start(100)
 
         # system tray: the app's real "window" - close/customize from there
         self._upd_worker = None
@@ -177,7 +199,13 @@ class FpsOverlay(QWidget):
     def showEvent(self, event):
         super().showEvent(event)
         self._disable_windows_backdrop()
+        self._apply_overlay_exstyle()
+        # Immediate topmost + a deferred second assertion 50 ms later.
+        # The first call positions us NOW; the deferred one catches the
+        # case where the WM processes our style changes asynchronously
+        # and briefly demotes us.
         self._reassert_topmost()
+        QTimer.singleShot(50, self._reassert_topmost)
 
     # --- Windows-only native tweaks ---
     def _disable_windows_backdrop(self):
@@ -199,14 +227,51 @@ class FpsOverlay(QWidget):
         except Exception:
             pass
 
-    def _reassert_topmost(self):
-        """Windows sometimes lets other windows bury us: it can silently
-        drop the WS_EX_TOPMOST style, and windows that are themselves
-        topmost (some games/launchers) can sit above us inside the
-        topmost band. Check both every tick and repair only when needed.
+    def _apply_overlay_exstyle(self):
+        """Set Win32 extended styles that make the window a true overlay:
 
-        The repair is the NOTOPMOST->TOPMOST dance, which forces Windows
-        to re-insert the window at the very top of the topmost band.
+        WS_EX_LAYERED      – composited by DWM; required for per-pixel alpha
+        WS_EX_TRANSPARENT  – click-through on transparent pixels (the text
+                             itself still catches mouse events via paintEvent)
+        WS_EX_TOOLWINDOW   – hidden from taskbar and Alt-Tab (replaces Qt's
+                             Tool flag which carries a z-order penalty)
+        WS_EX_NOACTIVATE   – never steals focus from the game
+        WS_EX_TOPMOST      – ensure the style bit is set, not just the pos
+        """
+        if sys.platform != "win32":
+            return
+        try:
+            hwnd = int(self.winId())
+            user32 = ctypes.windll.user32
+            ex = user32.GetWindowLongW(hwnd, _GWL_EXSTYLE)
+            ex |= (_WS_EX_LAYERED | _WS_EX_TOOLWINDOW
+                   | _WS_EX_NOACTIVATE | _WS_EX_TOPMOST)
+            # NOTE: WS_EX_TRANSPARENT is NOT added here because it would
+            # make the entire window click-through, preventing drag and
+            # right-click menus. The Qt WA_TranslucentBackground +
+            # WA_ShowWithoutActivating combo already gives us per-pixel
+            # transparency for the non-painted areas.
+            user32.SetWindowLongW(hwnd, _GWL_EXSTYLE, ex)
+            # Force Windows to re-read the style change
+            flags = _SWP_NOMOVE | _SWP_NOSIZE | _SWP_NOACTIVATE | _SWP_SHOWWINDOW
+            user32.SetWindowPos(hwnd, _HWND_TOPMOST, 0, 0, 0, 0, flags)
+        except Exception:
+            pass
+
+    def _reassert_topmost(self):
+        """Aggressively keep the overlay above everything, including games.
+
+        Strategy (every 250 ms tick):
+        1. If WS_EX_TOPMOST was stripped from our style, re-apply it.
+        2. Check if the *foreground* window overlaps us — this catches the
+           common case where a game (borderless-windowed or exclusive-FS)
+           is the active app and covers the overlay even though we're
+           nominally "topmost".
+        3. Walk the z-order upward from our HWND to catch other topmost
+           windows that slid above us.
+        4. If any of the above fired, do a NOTOPMOST→TOPMOST dance
+           *with SWP_SHOWWINDOW* to force the compositor to re-stack us
+           at the very top.
         """
         if sys.platform != "win32":
             return
@@ -214,20 +279,71 @@ class FpsOverlay(QWidget):
             hwnd = int(self.winId())
             user32 = ctypes.windll.user32
 
+            # 1. Re-apply TOPMOST if Windows stripped the style bit
             ex_style = user32.GetWindowLongW(hwnd, _GWL_EXSTYLE)
             if not (ex_style & _WS_EX_TOPMOST):
-                self._bump_topmost(hwnd)          # style was stripped
+                self._bump_topmost(hwnd)
                 return
-            if self.isVisible() and self._is_covered(hwnd):
-                self._bump_topmost(hwnd)          # another topmost is above us
+
+            if not self.isVisible():
+                return
+
+            # 2. Check if the foreground window is covering us
+            fg = user32.GetForegroundWindow()
+            if fg and fg != hwnd and self._window_covers_us(fg, hwnd):
+                self._bump_topmost(hwnd)
+                return
+
+            # 3. Walk z-order upward for any other topmost above us
+            if self._is_covered(hwnd):
+                self._bump_topmost(hwnd)
         except Exception:
             pass
 
     def _bump_topmost(self, hwnd: int):
+        """Force our window to the very top of the topmost z-band.
+
+        The NOTOPMOST→TOPMOST dance is the only reliable way to move a
+        window to the front of the topmost band. We add SWP_SHOWWINDOW
+        to ensure the compositor fully recomposites us on top.
+        """
         flags = _SWP_NOMOVE | _SWP_NOSIZE | _SWP_NOACTIVATE
+        flags_show = flags | _SWP_SHOWWINDOW
         user32 = ctypes.windll.user32
         user32.SetWindowPos(hwnd, _HWND_NOTOPMOST, 0, 0, 0, 0, flags)
-        user32.SetWindowPos(hwnd, _HWND_TOPMOST, 0, 0, 0, 0, flags)
+        user32.SetWindowPos(hwnd, _HWND_TOPMOST, 0, 0, 0, 0, flags_show)
+
+    def _window_covers_us(self, other_hwnd, our_hwnd) -> bool:
+        """Check if `other_hwnd` is visible, not cloaked, and overlaps our rect."""
+        try:
+            user32 = ctypes.windll.user32
+            if not user32.IsWindowVisible(other_hwnd):
+                return False
+            if user32.IsIconic(other_hwnd):
+                return False
+            # ignore DWM-cloaked windows (invisible UWP hosts etc.)
+            cloaked = ctypes.c_int(0)
+            try:
+                ctypes.windll.dwmapi.DwmGetWindowAttribute(
+                    ctypes.c_void_p(other_hwnd), 14,
+                    ctypes.byref(cloaked), ctypes.sizeof(cloaked))
+                if cloaked.value:
+                    return False
+            except Exception:
+                pass
+            # geometric overlap test
+            g = self.mapToGlobal(self.rect().topLeft())
+            left, top = g.x(), g.y()
+            right, bottom = left + self.width(), top + self.height()
+            r = _RECT()
+            if not user32.GetWindowRect(other_hwnd, ctypes.byref(r)):
+                return False
+            if r.right <= left or r.left >= right or \
+               r.bottom <= top or r.top >= bottom:
+                return False
+            return True
+        except Exception:
+            return False
 
     def _is_covered(self, hwnd: int) -> bool:
         """True when a VISIBLE window above us in the topmost z-order band
@@ -402,8 +518,9 @@ class FpsOverlay(QWidget):
         self._upd_worker = None
 
     def _apply_update(self, new_exe_path: str):
-        """Download complete: swap exes and relaunch. A UAC prompt for the
-        new instance is normal - it starts elevated like we do."""
+        """Download complete: swap exes and restart via the detached
+        helper (see updater.apply_update) - it waits for this process to
+        fully exit, cleans the temp dir, then starts the new version."""
         try:
             self._tray.showMessage("FPS Overlay", "Update downloaded - restarting...",
                                    QSystemTrayIcon.MessageIcon.Information)
@@ -413,9 +530,9 @@ class FpsOverlay(QWidget):
             if self.before_restart is not None:
                 self.before_restart()
             apply_update(new_exe_path)
-            # small delay so the toast renders and the new instance gets a
-            # head start before our process tears down
-            QTimer.singleShot(600, QApplication.instance().quit)
+            # brief delay so the toast renders before our process tears
+            # down; the helper launches the new build after we're gone
+            QTimer.singleShot(300, QApplication.instance().quit)
         except Exception as e:
             self._upd_worker = None
             self._tray.showMessage("FPS Overlay", f"Update failed: {e}",

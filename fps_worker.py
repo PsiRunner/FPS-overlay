@@ -159,9 +159,32 @@ class FpsWorker(QThread):
         self._presentmon_path = find_presentmon_exe()
         self._smoothed_fps = None      # EMA of the raw fps readings
         self._last_shown = None        # last integer value we actually emitted
+        self._session = None           # active _PresentMonSession (for external kill)
 
     def stop(self):
         self._running = False
+
+    def kill_presentmon(self):
+        """Force-kill the PresentMon child from OUTSIDE the worker thread.
+
+        Last-resort cleanup for the update restart: if this thread is
+        stuck in a blocking pipe read, stop()/wait() can time out without
+        close() ever running - and a surviving PresentMon keeps our _MEI
+        temp dir locked, which is what produced the 'Failed to remove
+        temporary directory' warning after a self-update."""
+        s = self._session
+        if s is None:
+            return
+        try:
+            p = psutil.Process(s.proc.pid)
+            if p.is_running():
+                p.kill()
+                p.wait(timeout=3)
+        except psutil.Error:
+            pass
+        except Exception:
+            pass
+        time.sleep(0.2)                # let the OS release the file handles
 
     def run(self):
         if sys.platform != "win32":
@@ -191,11 +214,13 @@ class FpsWorker(QThread):
                     if session:
                         session.close()
                         session = None
+                        self._session = None
                     buffer.clear()
                     self._smoothed_fps = None
                     self._last_shown = None
                     if target:
                         session = _PresentMonSession(self._presentmon_path, target)
+                        self._session = session
                         self.status_message.emit(f"Tracking {target}")
                     else:
                         self.status_message.emit("Waiting for a game...")
@@ -215,6 +240,7 @@ class FpsWorker(QThread):
                 # PresentMon exited on its own -> game likely closed
                 session.close()
                 session = None
+                self._session = None
                 buffer.clear()
                 self._smoothed_fps = None
                 self._last_shown = None
@@ -244,3 +270,4 @@ class FpsWorker(QThread):
 
         if session:
             session.close()
+            self._session = None
